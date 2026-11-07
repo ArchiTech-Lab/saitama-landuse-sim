@@ -32,7 +32,7 @@ input[type=range]{width:100%;margin:6px 0 2px;accent-color:var(--acc)}
 .seg input:checked+label{background:var(--accsoft);border-color:var(--acc);color:var(--acc);font-weight:600}
 .seg input:focus-visible+label,.chip:focus-visible,input[type=range]:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .seg{position:relative}
-.mapbox{position:relative;background:var(--mapbg);border-radius:8px;overflow:hidden;line-height:0;height:78vh;min-height:460px}
+.mapbox{position:relative;background:var(--mapbg);border-radius:8px;overflow:hidden;line-height:0;height:70vh;min-height:360px}
 #attr{position:absolute;left:6px;bottom:4px;font-size:11px;background:rgba(255,255,255,.8);color:#222;padding:1px 6px;border-radius:4px}#attr a{color:#222}
 canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab;user-select:none}
 canvas.drag{cursor:grabbing}
@@ -192,10 +192,15 @@ function px(wx,wy){const s=sc();return [(wx-G.x0)/CELL*s+V.tx,(NR-(wy-G.y0)/CELL
 function sizeStage(){
   const stg=$("stage"),W=stg.parentElement.clientWidth;
   const narrow=window.innerWidth<=760;
-  const hh=narrow?Math.min(Math.round(window.innerHeight*.66),Math.round(W*NR/NC)+16):Math.max(460,Math.round(window.innerHeight*.78));
+  const vh=window.innerHeight||document.documentElement.clientHeight;
+  // 初期表示（スクロール前）で地図の下端＋操作行がビューポートに収まる最大高さ。狭い画面は70vhを上限
+  const top=stg.getBoundingClientRect().top+window.scrollY;
+  const hh=narrow?Math.min(Math.round(vh*.7),Math.round(W*NR/NC)+16):Math.max(360,Math.round(vh-top-52));
   stg.style.height=hh+"px";
-  const nw=cv.clientWidth,nh=hh;
+  const nw=cv.clientWidth,nh=hh,ps0=V.s0,pw=V.w,ph=V.h;
   V.w=nw;V.h=nh;V.s0=Math.min(nw/NC,nh/NR);
+  if(ps0&&pw&&(pw!==nw||ph!==nh)&&V.k>1){ // リサイズ時は拡大率と中心を維持
+    const cx=(pw/2-V.tx)/(ps0*V.k),cy=(ph/2-V.ty)/(ps0*V.k);V.tx=nw/2-cx*sc();V.ty=nh/2-cy*sc();}
 }
 const KMAX=256; // タイルz18(約0.5m/px)相当まで
 function zoomAt(f,mx,my){
@@ -368,6 +373,8 @@ document.querySelectorAll(".chips").forEach(c=>c.onclick=e=>{const b=e.target.cl
 document.querySelectorAll("input[name=bm]").forEach(r=>r.onchange=()=>draw());
 $("so").oninput=()=>{$("oo").textContent=$("so").value+"%";draw()};
 if(META.dummy)$("bmbox").style.display="none";
+if(window.ResizeObserver)new ResizeObserver(()=>draw()).observe($("stage").parentElement);
+window.addEventListener("resize",()=>draw());
 const segP=$("segP");
 META.presets.forEach((p,i)=>{segP.insertAdjacentHTML("beforeend",`<input type="radio" name="sp" id="sp${i}" value="${i}"${i===0?" checked":""}><label for="sp${i}">${p.label}</label>`)});
 segP.onchange=e=>set("p",+e.target.value);

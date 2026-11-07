@@ -13,13 +13,13 @@
 --c0:#e8731c;--c1:#3a9bd8;--c2:#e6d93c;--c3:#d98ab6;--c4:#5f9470;--c5:#3a4352;--mapbg:#0b0e13;--ov:#f3f5f9;--warn:#ff8a7d;--warnbg:#3a1a17}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;overflow-x:hidden}
-.wrap{max-width:1100px;margin:0 auto;padding:16px}
+.wrap{max-width:1800px;margin:0 auto;padding:16px}
 h1{font-size:1.35rem;margin:0 0 4px}
 h2{font-size:1rem;margin:0 0 8px}
 .sub{color:var(--mut);margin:0 0 12px;font-size:.9rem}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px;min-width:0}
-.grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:12px;align-items:start}
-@media(max-width:760px){.grid{grid-template-columns:minmax(0,1fr)}}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:12px;align-items:start}
+@media(max-width:760px){.grid{grid-template-columns:minmax(0,1fr)}.mapbox{min-height:0}.wrap{padding:10px 6px}.mapcard{padding:6px!important}}
 .ctl{margin-bottom:14px}
 .ctl label.t{display:flex;justify-content:space-between;gap:8px;font-weight:600;font-size:.92rem}
 .ctl output{color:var(--acc);font-variant-numeric:tabular-nums;text-align:right}
@@ -32,8 +32,13 @@ input[type=range]{width:100%;margin:6px 0 2px;accent-color:var(--acc)}
 .seg input:checked+label{background:var(--accsoft);border-color:var(--acc);color:var(--acc);font-weight:600}
 .seg input:focus-visible+label,.chip:focus-visible,input[type=range]:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .seg{position:relative}
-.mapbox{background:var(--mapbg);border-radius:8px;overflow:hidden;line-height:0}
-canvas{display:block;width:100%;touch-action:pan-y}
+.mapbox{position:relative;background:var(--mapbg);border-radius:8px;overflow:hidden;line-height:0;height:78vh;min-height:460px}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab;user-select:none}
+canvas.drag{cursor:grabbing}
+.zb{position:absolute;top:8px;right:8px;display:flex;flex-direction:column;gap:6px;line-height:1}
+.zb button{width:40px;height:40px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;font:600 18px system-ui;cursor:pointer;opacity:.94}
+.zb button:hover{border-color:var(--acc)}
+#zlv{position:absolute;left:8px;bottom:8px;background:var(--card);color:var(--mut);border:1px solid var(--line);border-radius:6px;padding:1px 8px;font-size:.78rem;line-height:1.5}
 .legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:8px;font-size:.82rem}
 .legend span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
 .sw{width:14px;height:14px;border-radius:3px;border:1px solid rgba(0,0,0,.25);display:inline-block}
@@ -63,8 +68,10 @@ li{margin:2px 0}
 <div class="banner" id="dummyBanner">ダミーデータ表示中：数値に意味はありません（UI検証用）</div>
 <div class="grid">
  <div>
-  <div class="card">
-   <div class="mapbox"><canvas id="map" aria-label="土地区分の地図"></canvas></div>
+  <div class="card mapcard">
+   <div class="mapbox" id="stage"><canvas id="map" aria-label="土地区分の地図"></canvas>
+    <div class="zb"><button id="zin" aria-label="拡大">+</button><button id="zout" aria-label="縮小">&minus;</button><button id="zrs" aria-label="リセット" style="font-size:13px">1x</button></div>
+    <div id="zlv">ホイール/ピンチで拡大・ドラッグで移動</div></div>
    <div id="probe" aria-live="polite">地図をタップ／ホバーでセルの値を表示</div>
    <div class="legend" id="legend"></div>
    <div class="layers" id="layers">
@@ -168,7 +175,26 @@ const off=document.createElement("canvas");off.width=NC;off.height=NR;const octx
 const roff=document.createElement("canvas");roff.width=NC;roff.height=NR;const rctx=roff.getContext("2d");
 let pal=[];
 function readPal(){pal=[0,1,2,3,4,5].map(i=>hex(css("--c"+i)));}
-function px(wx,wy){return [(wx-G.x0)/CELL/NC*cv.clientWidth,(1-(wy-G.y0)/CELL/NR)*cv.clientHeight]}
+const V={k:1,tx:0,ty:0,w:0,h:0,s0:1};
+function sc(){return V.s0*V.k}
+function clampV(){const s=sc(),mw=NC*s,mh=NR*s;
+  V.tx=mw<=V.w?(V.w-mw)/2:Math.min(0,Math.max(V.w-mw,V.tx));
+  V.ty=mh<=V.h?(V.h-mh)/2:Math.min(0,Math.max(V.h-mh,V.ty));}
+function px(wx,wy){const s=sc();return [(wx-G.x0)/CELL*s+V.tx,(NR-(wy-G.y0)/CELL)*s+V.ty]}
+function sizeStage(){
+  const stg=$("stage"),W=stg.parentElement.clientWidth;
+  const narrow=window.innerWidth<=760;
+  const hh=narrow?Math.min(Math.round(window.innerHeight*.66),Math.round(W*NR/NC)+16):Math.max(460,Math.round(window.innerHeight*.78));
+  stg.style.height=hh+"px";
+  const nw=cv.clientWidth,nh=hh;
+  V.w=nw;V.h=nh;V.s0=Math.min(nw/NC,nh/NR);
+}
+function zoomAt(f,mx,my){
+  const k0=V.k,k1=Math.min(16,Math.max(1,k0*f));if(k1===k0)return;
+  const s0=sc();const cx=(mx-V.tx)/s0,cy=(my-V.ty)/s0;
+  V.k=k1;const s1=sc();V.tx=mx-cx*s1;V.ty=my-cy*s1;clampV();viewChanged();
+}
+function viewChanged(){$("zlv").textContent=V.k===1?"ホイール/ピンチで拡大・ドラッグで移動":"拡大 "+V.k.toFixed(1)+"倍";draw()}
 function drawBase(){
   const img=octx.createImageData(NC,NR),d=img.data,cls=st.cls,mb=hex(css("--mapbg")),f=st.focus;
   for(let i=0;i<N;i++){
@@ -182,29 +208,32 @@ function drawBase(){
   octx.putImageData(img,0,0);
 }
 function hatch(){const h=document.createElement("canvas");h.width=h.height=8;const g=h.getContext("2d");g.strokeStyle=css("--ov");g.lineWidth=1.6;g.beginPath();g.moveTo(0,8);g.lineTo(8,0);g.moveTo(-2,2);g.lineTo(2,-2);g.moveTo(6,10);g.lineTo(10,6);g.stroke();return h}
+const tmpC=document.createElement("canvas");
 function draw(){
-  const dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=Math.round(w*NR/NC);
-  if(cv.style.height!==h+"px")cv.style.height=h+"px";
-  if(cv.width!==Math.round(w*dpr)){cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr)}
+  const dpr=window.devicePixelRatio||1;
+  sizeStage();clampV();const w=V.w,h=V.h;
+  if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr)){cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr)}
+  const s=sc();
   ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
-  ctx.imageSmoothingEnabled=false;ctx.drawImage(off,0,0,w,h);
+  ctx.imageSmoothingEnabled=false;ctx.drawImage(off,V.tx,V.ty,NC*s,NR*s);
   const S=META.stations,X=st.x;
   if($("lyR").checked){
     const rm=rctx.createImageData(NC,NR),rd=rm.data,re=retreat[X];
     for(let i=0;i<N;i++){ if(re[i]&&valid[i]){const col=(i/NC)|0,row=i-col*NC,o=((NR-1-col)*NC+row)*4;rd[o+3]=255} }
     rctx.putImageData(rm,0,0);
-    const t=document.createElement("canvas");t.width=Math.max(1,Math.round(w));t.height=h;const tc=t.getContext("2d");
-    tc.fillStyle=tc.createPattern(hatch(),"repeat");tc.fillRect(0,0,t.width,h);
-    tc.globalCompositeOperation="destination-in";tc.imageSmoothingEnabled=false;tc.drawImage(roff,0,0,t.width,h);
+    const t=tmpC;t.width=Math.max(1,Math.round(w));t.height=Math.round(h);const tc=t.getContext("2d");
+    tc.clearRect(0,0,t.width,t.height);tc.fillStyle=tc.createPattern(hatch(),"repeat");tc.fillRect(0,0,t.width,t.height);
+    tc.globalCompositeOperation="destination-in";tc.imageSmoothingEnabled=false;tc.drawImage(roff,V.tx,V.ty,NC*s,NR*s);tc.globalCompositeOperation="source-over";
     ctx.globalAlpha=.55;ctx.drawImage(t,0,0,w,h);ctx.globalAlpha=1;
   }
   const ov=css("--ov"),bg=css("--card");
   if($("lyC").checked){
     ctx.lineWidth=1.5;ctx.strokeStyle=ov;
-    for(const s of S){ if(!s.alive[X])continue; const [a,b]=px(s.x,s.y),r=(s.core_m||META.r)/CELL/NC*w; ctx.beginPath();ctx.arc(a,b,r,0,6.2832);ctx.stroke(); }
+    for(const s of S){ if(!s.alive[X])continue; const [a,b]=px(s.x,s.y),r=Math.max(5,(s.core_m||META.r)/CELL*sc()); ctx.beginPath();ctx.arc(a,b,r,0,6.2832);ctx.stroke(); }
   }
   if($("lyS").checked){
-    for(const s of S){ if(!s.alive[X])continue; const [a,b]=px(s.x,s.y); ctx.beginPath();ctx.arc(a,b,3.6,0,6.2832);ctx.fillStyle=bg;ctx.fill();ctx.lineWidth=2;ctx.strokeStyle=ov;ctx.stroke(); }
+    for(const s of S){ if(!s.alive[X])continue; const [a,b]=px(s.x,s.y); if(a<-20||b<-20||a>w+20||b>h+20)continue; ctx.beginPath();ctx.arc(a,b,3.6,0,6.2832);ctx.fillStyle=bg;ctx.fill();ctx.lineWidth=2;ctx.strokeStyle=ov;ctx.stroke();
+      if(V.k>=4){ctx.font="12px system-ui,'Noto Sans JP',sans-serif";ctx.lineWidth=3;ctx.strokeStyle=bg;ctx.fillStyle=ov;ctx.strokeText(s.name,a+7,b+4);ctx.fillText(s.name,a+7,b+4);} }
   }
   if($("lyI").checked){
     for(const s of META.ic){ const [a,b]=px(s.x,s.y),q=4.5; ctx.beginPath();ctx.moveTo(a,b-q);ctx.lineTo(a+q,b);ctx.lineTo(a,b+q);ctx.lineTo(a-q,b);ctx.closePath();ctx.fillStyle=s.kind==="JCT"?bg:ov;ctx.fill();ctx.lineWidth=1.5;ctx.strokeStyle=bg;ctx.stroke(); }
@@ -259,12 +288,28 @@ $("q3").onclick=()=>{st.focus=3;document.getElementById("pr0").checked=true;st.p
 $("legend").onclick=e=>{};
 $("legend").querySelectorAll("span").forEach((s,i)=>{if(i<6){s.style.cursor="pointer";s.title="クリックで強調／解除";s.onclick=()=>{st.focus=st.focus===i?-1:i;update()}}});
 function probe(ev){
-  const r=cv.getBoundingClientRect(),fx=(ev.clientX-r.left)/r.width,fy=(ev.clientY-r.top)/r.height;
-  const c=Math.floor(fx*NC),row=Math.floor((1-fy)*NR);if(c<0||c>=NC||row<0||row>=NR)return;
+  const r=cv.getBoundingClientRect(),mx=ev.clientX-r.left,my=ev.clientY-r.top,s=sc();
+  const c=Math.floor((mx-V.tx)/s),row=NR-1-Math.floor((my-V.ty)/s);if(c<0||c>=NC||row<0||row>=NR)return;
   const i=row*NC+c;if(!valid[i]){$("probe").textContent="県外";return}
   $("probe").textContent=`${NAMES[st.cls[i]]}　駅から ${tS[st.x][st.p][i]}分 ／ ICから ${tI[st.p][i]}分${core[st.x][i]?" ／ コア円内":""}${retreat[st.x][i]?" ／ 撤退地域":""}`;
 }
-cv.addEventListener("pointermove",probe);cv.addEventListener("pointerdown",probe);
+window.__view=V;
+const ptr=new Map();let pinch=null,moved=0;
+cv.addEventListener("wheel",e=>{e.preventDefault();const r=cv.getBoundingClientRect();zoomAt(Math.exp(-e.deltaY*(e.deltaMode?0.05:0.0015)),e.clientX-r.left,e.clientY-r.top)},{passive:false});
+cv.addEventListener("pointerdown",e=>{cv.setPointerCapture(e.pointerId);ptr.set(e.pointerId,{x:e.clientX,y:e.clientY});moved=0;cv.classList.add("drag");
+  if(ptr.size===2){const [a,b]=[...ptr.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y)}}else probe(e)});
+cv.addEventListener("pointermove",e=>{
+  const p=ptr.get(e.pointerId);if(!p){probe(e);return}
+  const dx=e.clientX-p.x,dy=e.clientY-p.y;p.x=e.clientX;p.y=e.clientY;
+  if(ptr.size===2&&pinch){const [a,b]=[...ptr.values()],d=Math.hypot(a.x-b.x,a.y-b.y),r=cv.getBoundingClientRect();
+    zoomAt(d/pinch.d,(a.x+b.x)/2-r.left,(a.y+b.y)/2-r.top);pinch.d=d;}
+  else if(ptr.size===1){moved+=Math.abs(dx)+Math.abs(dy);V.tx+=dx;V.ty+=dy;clampV();draw();if(moved<4)probe(e)}
+});
+const up=e=>{ptr.delete(e.pointerId);pinch=null;if(!ptr.size)cv.classList.remove("drag")};
+cv.addEventListener("pointerup",up);cv.addEventListener("pointercancel",up);
+function zc(f){zoomAt(f,V.w/2,V.h/2)}
+$("zin").onclick=()=>zc(1.6);$("zout").onclick=()=>zc(1/1.6);
+$("zrs").onclick=()=>{V.k=1;V.tx=V.ty=0;clampV();viewChanged()};
 new ResizeObserver(()=>{if(st.cls)draw()}).observe(cv);
 matchMedia("(prefers-color-scheme:dark)").addEventListener("change",()=>st.cls&&update());
 function list(id,a){$(id).innerHTML=(a||[]).map(s=>`<li>${String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")}</li>`).join("")}

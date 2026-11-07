@@ -11,7 +11,7 @@ def rec(n, name, ok, note): res.append((n, name, ok, note)); print(f"[{'PASS' if
 F = sc.load(); meta = json.load(open(os.path.join(DATA, "meta.json"), encoding="utf-8"))
 valid, water = F["valid"], F["water"]
 NX, NP = F["core"].shape[0], F["tS"].shape[1]
-PRIOS = ["conflict", "industry", "farm"]
+PRIOS = ["industry"]
 CELL_KM2 = 0.25
 
 # 1 面積保存
@@ -27,7 +27,7 @@ bad = 0
 for x in (0, 4, 10):
     for p in range(NP):
         for pr in PRIOS:
-            c = sc.classify(F, x, 60, 15, p, pr)
+            c = sc.classify(F, x, 30, 10, p, pr)
             if sum(int((c == k).sum()) for k in range(6)) != int(valid.sum()) or (c == 255).sum() != (valid == 0).sum(): bad += 1
 rec(1, "面積保存", abs(va - area) / area <= 0.02 and bad == 0,
     f"valid {va:.1f}km² / N03(6677) {area:.1f}km² 差{100*(va-area)/area:+.2f}%、区分合計≠valid の組 {bad}")
@@ -37,10 +37,10 @@ bad = []
 for x in range(NX):
     for p in range(NP):
         for pr in ("conflict",):
-            fm = [(lambda c: (c == 2) | (c == 3))(sc.classify(F, x, Y, 15, p, pr)) for Y in (30, 60, 90)]
-            im = [(lambda c: (c == 1) | (c == 3))(sc.classify(F, x, 60, Z, p, pr)) for Z in (10, 15, 30)]
+            fm = [(lambda c: (c == 2) | (c == 1))(sc.classify(F, x, Y, 10, p, pr)) for Y in (15, 30, 45)]
+            im = [(lambda c: c == 1)(sc.classify(F, x, 30, Z, p, pr)) for Z in (5, 10, 15)]
             if not (np.all(fm[0] <= fm[1]) and np.all(fm[1] <= fm[2]) and np.all(im[0] <= im[1]) and np.all(im[1] <= im[2])): bad.append((x, p))
-rec(2, "入れ子 Y30⊂60⊂90, Z10⊂15⊂30", not bad, f"全{NX}X×{NP}速度で検査、違反 {len(bad)}")
+rec(2, "入れ子 Y15⊂30⊂45, Z5⊂10⊂15", not bad, f"全{NX}X×{NP}速度で検査、違反 {len(bad)}")
 
 # 3 単調性
 inpref = []
@@ -77,8 +77,8 @@ r = subprocess.run([sys.executable, os.path.join(HERE, "build_saitama.py")], cap
 if r.returncode != 0: rec(5, "Python/JS 一致", False, "build失敗 " + r.stderr[-200:])
 else:
     from playwright.sync_api import sync_playwright
-    exe = glob.glob(os.path.expanduser("~/.cache/ms-playwright/chromium_headless_shell-*/*/chrome-headless-shell"))[0]
-    XS, YS, ZS = (0, 4, 10), (30, 60, 90), (10, 15, 30)
+    exe = glob.glob("~/.cache/ms-playwright/chromium_headless_shell-*/*/chrome-headless-shell")[0]
+    XS, YS, ZS = (0, 4, 10), (15, 30, 45), (5, 10, 15)
     ncmp = 0; nbad = 0
     with sync_playwright() as p:
         b = p.chromium.launch(executable_path=exe); pg = b.new_page()
@@ -94,7 +94,7 @@ else:
                             ncmp += 1
                             nbad += int((j != py).sum() > 0) if len(j) == len(py) else 1
         b.close()
-    rec(5, "Python/JS 区分一致", nbad == 0 and ncmp == 243, f"{ncmp}組（X3×Y3×Z3×速度3×優先3）全セル比較、不一致 {nbad}")
+    rec(5, "Python/JS 区分一致", nbad == 0 and ncmp == 81, f"{ncmp}組（X3×Y3×Z3×速度3）全セル比較、不一致 {nbad}")
 
 # 6 投影
 pat = re.compile(r"3857|4326|\.area\b|geod", re.I)

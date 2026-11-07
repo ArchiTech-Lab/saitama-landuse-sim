@@ -98,6 +98,50 @@ def center_idx(P):
     ci = ((P["x0"] + (cc + .5) * C - gx0) // F).astype(int); ri = ((P["y0"] + (rr + .5) * C - gy0) // F).astype(int)
     return (ri * W + ci).ravel()
 
+def nh100(P):
+    """国道沿線100m帯が各500mセルを覆う面積割合(%, uint8[N])。元の線(単純化前)を6677に投影→shapelyで100mバッファ。
+    国道の選択条件は saitama_layers.py と同じ（trunk で ref 1〜507、または name/official_name に「国道」を含む trunk/primary/secondary）。"""
+    cache = os.path.join(D, "nh100.npz")
+    if os.path.exists(cache):
+        z = np.load(cache)
+        if z["nh"].size == P["ncols"] * P["nrows"]: return z["nh"]
+    import glob, shapely
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+    def refnum(t):
+        for q in re.split(r"[;,]", t.get("ref", "")):
+            q = q.strip()
+            if q.isdigit() and 1 <= int(q) <= 507: return q
+        return None
+    lines = {}
+    for fn in sorted(glob.glob(os.path.join(D, "raw", "osm", "roads_*.json"))):
+        for e in json.load(open(fn, encoding="utf-8"))["elements"]:
+            if e.get("type") != "way" or "geometry" not in e: continue
+            t = e.get("tags", {}); hw = t.get("highway", "")
+            if hw not in ("trunk", "primary", "trunk_link", "primary_link", "secondary"): continue
+            nm = " ".join(t.get(k, "") for k in ("name", "official_name", "name:ja"))
+            ref = refnum(t)
+            if not (("国道" in nm) or (hw.startswith("trunk") and ref)): continue
+            if not ref:
+                mm = re.search(r"国道(\d+)号", nm); ref = mm.group(1) if mm else None
+            if not ref: continue
+            pts = e["geometry"]
+            if len(pts) < 2: continue
+            xs, ys = TR.transform([q["lon"] for q in pts], [q["lat"] for q in pts])
+            lines[e["id"]] = LineString(list(zip(xs, ys)))
+    band = unary_union([l.buffer(100.0, cap_style=2) for l in lines.values()])    # 6677 平面での100mバッファ
+    nc, nr = P["ncols"], P["nrows"]
+    out = np.zeros(nc * nr, np.uint8)
+    cc, rr = np.meshgrid(np.arange(nc), np.arange(nr)); cc = cc.ravel(); rr = rr.ravel()
+    boxes = shapely.box(P["x0"] + cc * C, P["y0"] + rr * C, P["x0"] + (cc + 1) * C, P["y0"] + (rr + 1) * C)
+    shapely.prepare(band)
+    hit = np.nonzero(shapely.intersects(boxes, band))[0]
+    from shapely import area as area_m2      # 6677 平面座標なので m²
+    a = area_m2(shapely.intersection(boxes[hit], band))
+    out[hit] = np.clip(np.rint(a / (C * C) * 100), 0, 100).astype(np.uint8)
+    np.savez_compressed(cache, nh=out)
+    return out
+
 def to_u8(t):
     t = np.where(np.isfinite(t), np.rint(t), 255)
     return np.minimum(t, 255).astype(np.uint8)
@@ -180,7 +224,7 @@ def main():
             retreat[k] = np.isin(allp[nn], rs).astype(np.uint8)
     core[:, P["water"] == 1] = 0
     core[:, P["valid"] == 0] = 0; retreat[:, P["valid"] == 0] = 0
-    np.savez_compressed(os.path.join(D, "fields.npz"), valid=P["valid"], water=P["water"], tS=tS, tI=tI, core=core, retreat=retreat)
+    np.savez_compressed(os.path.join(D, "fields.npz"), valid=P["valid"], water=P["water"], tS=tS, tI=tI, core=core, retreat=retreat, nh100=nh100(P))
     # meta
     stations = []
     for i in ii:
@@ -198,6 +242,8 @@ def main():
                  "国勢調査 地域メッシュ統計（500mメッシュ人口）および将来推計人口メッシュ",
                  "道路・IC：© OpenStreetMap contributors（ODbL）"],
         limits=["農地・工業は到達圏のみを塗る。標高・傾斜・現況の森林/市街は考慮しない（秩父山地も到達圏なら農地に塗られる）",
+                "500m格子のため、工業セルは国道100m帯がかかるセル（面積を過大評価する）。工業の実面積は国道100m帯の実面積として別掲",
+                "工業地帯＝ICから一般道でZ分以内かつ国道沿線100m以内（国道はOSM。ICはIC/SIC）",
                 "道路は主要道（高速・国道・主要地方道・県道・市道の一部＝OSM の motorway/trunk/primary/secondary/tertiary）のみ。それ以外は一律12km/hの面として扱う",
                 "所要時間は渋滞・信号・時間帯を反映しない。速度は仮定値で実測ではない",
                 "駅からの時間Yも ICからの時間Zも一般道のみ（高速道路は使わない）の保守的な値。ICは Z の始点としてのみ使う",

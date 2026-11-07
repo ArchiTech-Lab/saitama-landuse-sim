@@ -26,7 +26,7 @@ PRESETS = [
 def load_real():
     meta = json.loads((DATA / "meta.json").read_text(encoding="utf-8"))
     f = np.load(DATA / "fields.npz")
-    return meta, {k: np.asarray(f[k], dtype=np.uint8) for k in ("valid", "water", "tS", "tI", "core", "retreat")}
+    return meta, {k: np.asarray(f[k], dtype=np.uint8) for k in ("valid", "water", "tS", "tI", "core", "retreat", "nh100")}
 
 
 def make_dummy():
@@ -68,12 +68,12 @@ def make_dummy():
             "stations": stations, "ic": ic,
             "sources": ["【ダミーデータ】UI検証用の合成データです。実在の地形・駅・ICとは無関係です。"],
             "limits": ["【ダミーデータ】数値に意味はありません。"], "built": "dummy", "dummy": True}
-    return meta, {"valid": valid, "water": water, "tS": tS.reshape(NX, NP, N), "tI": tI, "core": core, "retreat": retreat}
+    return meta, {"valid": valid, "water": water, "tS": tS.reshape(NX, NP, N), "tI": tI, "core": core, "retreat": retreat, "nh100": (valid * 100).astype(np.uint8)}
 
 
 def check(meta, F):
     g = meta["grid"]; N = g["ncols"] * g["nrows"]
-    exp = {"valid": (N,), "water": (N,), "tS": (NX, NP, N), "tI": (NP, N), "core": (NX, N), "retreat": (NX, N)}
+    exp = {"valid": (N,), "water": (N,), "tS": (NX, NP, N), "tI": (NP, N), "core": (NX, N), "retreat": (NX, N), "nh100": (N,)}
     for k, s in exp.items():
         if F[k].shape != s:
             sys.exit(f"契約違反: {k} の形が {F[k].shape}（期待 {s}）")
@@ -82,7 +82,7 @@ def check(meta, F):
 
 
 def pack(F):
-    raw = b"".join(np.ascontiguousarray(F[k]).tobytes() for k in ("valid", "water", "tS", "tI", "core", "retreat"))
+    raw = b"".join(np.ascontiguousarray(F[k]).tobytes() for k in ("valid", "water", "tS", "tI", "core", "retreat", "nh100"))
     return base64.b64encode(gzip.compress(raw, 9, mtime=0)).decode("ascii")
 
 
@@ -197,8 +197,8 @@ li{margin:2px 0}
    <h2>この画面が答える3つの問い</h2>
    <div class="q">
     <button id="q1">1. Xを上げると、居住・農地・工業・緑地の面積比はどう変わるか<br><span class="mut">X を最小にして動かし始める</span></button>
-    <button id="q2">2. どのY・Zで全域を覆う（区分が意味を失う）か<br><span class="mut">Y=90・Z=30 にして飽和境目を表示</span></button>
-    <button id="q3">3. 農地と工業が奪い合う土地（競合）はどこに、どれだけあるか<br><span class="mut">競合のまま表示し、競合を強調</span></button>
+    <button id="q2">2. どのYで農地側が全域を覆う（区分が意味を失う）か<br><span class="mut">Y=60 にして農地側の飽和境目を表示</span></button>
+    <button id="q3">3. 工業地帯（IC圏×国道100m）はどこに、どれだけあるか<br><span class="mut">工業を強調し、国道を重ねて表示</span></button>
    </div>
   </div>
  </div>
@@ -207,22 +207,20 @@ li{margin:2px 0}
    <div class="ctl"><label class="t" for="sx">X　残す条件（コア円内の人口密度）<output id="ox"></output></label>
     <input type="range" id="sx" min="0" max="10" step="1" value="5"><div class="mut" id="xnote"></div></div>
    <div class="ctl"><label class="t" for="sy">Y　農地：駅から車で（分）<output id="oy"></output></label>
-    <input type="range" id="sy" min="1" max="120" step="1" value="60">
-    <div class="chips" data-for="sy"><button class="chip" data-v="30">30分</button><button class="chip" data-v="60">60分</button><button class="chip" data-v="90">90分</button></div></div>
-   <div class="ctl"><label class="t" for="sz">Z　工業：ICから一般道で（分）<output id="oz"></output></label>
-    <input type="range" id="sz" min="1" max="60" step="1" value="15">
-    <div class="chips" data-for="sz"><button class="chip" data-v="10">10分</button><button class="chip" data-v="15">15分</button><button class="chip" data-v="30">30分</button></div></div>
+    <input type="range" id="sy" min="5" max="60" step="5" value="30">
+    <div class="chips" data-for="sy"><button class="chip" data-v="15">15分</button><button class="chip" data-v="30">30分</button><button class="chip" data-v="45">45分</button></div></div>
+   <div class="ctl"><label class="t" for="sz">Z　工業：ICから一般道で（分）。国道100m以内のみ<output id="oz"></output></label>
+    <input type="range" id="sz" min="1" max="30" step="1" value="10">
+    <div class="chips" data-for="sz"><button class="chip" data-v="5">5分</button><button class="chip" data-v="10">10分</button><button class="chip" data-v="15">15分</button></div></div>
    <div class="ctl"><div class="t" style="font-weight:600;font-size:.92rem;margin-bottom:6px">速度の仮定</div><div class="seg" id="segP"></div></div>
-   <div class="ctl" style="margin-bottom:0"><div class="t" style="font-weight:600;font-size:.92rem;margin-bottom:6px">競合の扱い</div><div class="seg" id="segR">
-    <input type="radio" name="prio" id="pr0" value="conflict" checked><label for="pr0">競合のまま</label>
-    <input type="radio" name="prio" id="pr1" value="industry"><label for="pr1">工業へ</label>
-    <input type="radio" name="prio" id="pr2" value="farm"><label for="pr2">農地へ</label></div></div>
+   </div>
   </div>
   <div class="card">
    <h2>指標</h2>
    <table><thead><tr><th>区分</th><th>km²</th><th>%</th></tr></thead><tbody id="tb"></tbody></table>
    <div class="cov"><span>農地側の到達圏被覆率（居住を除く）<span id="bF"></span></span><b id="vF"></b></div>
-   <div class="cov"><span>工業側の到達圏被覆率（居住を除く）<span id="bI"></span></span><b id="vI"></b></div>
+   <div class="cov"><span>工業側の到達圏被覆率（居住を除く・国道100m帯のかかるセル）</span><b id="vI"></b></div>
+   <div class="cov"><span>工業の実面積（国道100m帯。Σ帯面積割合×0.25km²）</span><b id="vA"></b></div>
    <div class="cov"><span>生存駅数（県内）</span><b id="vS"></b></div>
    <div class="cov"><span>撤退地域面積</span><b id="vR"></b></div>
    <div class="mut" id="sat" style="margin-top:6px"></div>
@@ -246,32 +244,32 @@ li{margin:2px 0}
 <script type="text/plain" id="blob">__DATA__</script>
 <script>
 "use strict";
-const NX=11,NP=3,NAMES=["居住","工業","農地","競合","緑地・森林","区分外"];
+const NX=11,NP=3,NAMES=["居住","工業","農地","（欠番）","緑地・森林","区分外"];
 const META=JSON.parse(document.getElementById("meta").textContent);
 const LAYERS=JSON.parse(document.getElementById("layersdata").textContent);
 const G=META.grid,NC=G.ncols,NR=G.nrows,N=NC*NR,CELL=G.cell||500,KM2=CELL*CELL/1e6;
-let valid,water,tS,tI,core,retreat; // tS[x][p] は subarray
+let valid,water,tS,tI,core,retreat,nh; // tS[x][p] は subarray
 const PRIO={conflict:0,industry:1,farm:2};
-/* 契約の区分判定。x:段0..10, p:速度0..2(またはid), prio:"conflict"|"industry"|"farm"。有効外セルは 255。 */
+/* 契約の区分判定。x:段0..10, p:速度0..2(またはid)。prio は後方互換のため受けるが無視（farm∧ind は常に工業）。有効外セルは 255。
+   工業 = ICから一般道でZ分以内 かつ 国道100m帯がかかるセル(nh>0)。 */
 function classify(x,y,z,preset,prio){
   const p=typeof preset==="string"?META.presets.findIndex(q=>q.id===preset):preset;
   const out=new Uint8Array(N), ts=tS[x][p], ti=tI[p], co=core[x];
-  const cf= prio==="industry"?1:(prio==="farm"?2:3);
   for(let i=0;i<N;i++){
     if(!valid[i]){out[i]=255;continue}
     if(water[i]){out[i]=5;continue}
     let c=4;
     if(co[i]) c=0;
-    else{const f=ts[i]<=y,d=ti[i]<=z; if(f&&d)c=cf; else if(d)c=1; else if(f)c=2;}
+    else{const f=ts[i]<=y,d=ti[i]<=z&&nh[i]>0; if(d)c=1; else if(f)c=2;}
     out[i]=c;
   }
   return out;
 }
 window.classify=classify;
-/* 被覆率（優先に依存しない）: 分母=有効かつ非水域かつ非コア。分子=そのうち farm / ind の数 */
+/* 被覆率（優先に依存しない）: 分母=有効かつ非水域かつ非コア。分子=そのうち 農地側(tS<=Y) / 工業側(tI<=Z かつ nh>0) の数 */
 function coverage(x,y,z,p){
   const ts=tS[x][p],ti=tI[p],co=core[x];let den=0,nf=0,ni=0;
-  for(let i=0;i<N;i++){ if(!valid[i]||water[i]||co[i])continue; den++; if(ts[i]<=y)nf++; if(ti[i]<=z)ni++; }
+  for(let i=0;i<N;i++){ if(!valid[i]||water[i]||co[i])continue; den++; if(ts[i]<=y)nf++; if(ti[i]<=z&&nh[i]>0)ni++; }
   return {den,nf,ni};
 }
 /* 被覆率が95%を超える最小のY/Z（無ければ null） */
@@ -280,7 +278,7 @@ function satPoint(arr,co,den){
   for(let i=0;i<N;i++){ if(!valid[i]||water[i]||co[i])continue; h[arr[i]]++; }
   let s=0; for(let t=0;t<256;t++){ s+=h[t]; if(den&&s/den>0.95) return t; } return null;
 }
-const st={x:5,y:60,z:15,p:0,prio:"conflict",focus:-1,cls:null};
+const st={x:5,y:30,z:10,p:0,focus:-1,cls:null};
 const $=id=>document.getElementById(id);
 function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
 function hex(c){const m=c.replace("#","");return [parseInt(m.slice(0,2),16),parseInt(m.slice(2,4),16),parseInt(m.slice(4,6),16)]}
@@ -378,24 +376,26 @@ function fmt(v,d=1){return v.toLocaleString("ja-JP",{minimumFractionDigits:d,max
 function metrics(){
   const cnt=new Float64Array(6);let vn=0;const cls=st.cls;
   for(let i=0;i<N;i++){const c=cls[i];if(c!==255){cnt[c]++;vn++}}
-  const rows=[0,1,2,3,4,5].map(c=>`<tr><td><span class="sw" style="background:var(--c${c})"></span> ${NAMES[c]}</td><td>${fmt(cnt[c]*KM2)}</td><td>${vn?fmt(cnt[c]/vn*100):"-"}</td></tr>`);
+  const rows=[0,1,2,4,5].map(c=>`<tr><td><span class="sw" style="background:var(--c${c})"></span> ${NAMES[c]}</td><td>${fmt(cnt[c]*KM2)}</td><td>${vn?fmt(cnt[c]/vn*100):"-"}</td></tr>`);
   rows.push(`<tr><td><b>県内計</b></td><td><b>${fmt(vn*KM2)}</b></td><td>100.0</td></tr>`);
   $("tb").innerHTML=rows.join("");
   const cv_=coverage(st.x,st.y,st.z,st.p),pf=cv_.nf/cv_.den*100,pi=cv_.ni/cv_.den*100;
   $("vF").textContent=fmt(pf)+"%";$("vI").textContent=fmt(pi)+"%";
-  $("bF").innerHTML=pf>95?'<span class="badge">飽和</span>':"";$("bI").innerHTML=pi>95?'<span class="badge">飽和</span>':"";
+  $("bF").innerHTML=pf>95?'<span class="badge">飽和</span>':"";
+  let ra=0;for(let i=0;i<N;i++)if(cls[i]===1)ra+=nh[i];
+  $("vA").textContent=fmt(ra/100*KM2)+" km²（セル数ベース "+fmt(cnt[1]*KM2)+" km²）";
   let ns=0;for(const s of META.stations){ if(!s.alive[st.x])continue; const c=Math.floor((s.x-G.x0)/CELL),r=Math.floor((s.y-G.y0)/CELL); if(c>=0&&c<NC&&r>=0&&r<NR&&valid[r*NC+c])ns++; }
   $("vS").textContent=ns+" 駅";
   let rn=0;const re=retreat[st.x];for(let i=0;i<N;i++)if(re[i]&&valid[i])rn++;
   $("vR").textContent=fmt(rn*KM2)+" km²";
-  const ys=satPoint(tS[st.x][st.p],core[st.x],cv_.den),zs=satPoint(tI[st.p],core[st.x],cv_.den);
-  $("sat").textContent=`飽和境目（この X・速度）：農地 ${ys===null?"到達せず":"Y≥"+ys+"分"} ／ 工業 ${zs===null?"到達せず":"Z≥"+zs+"分"}（被覆率95%超）`;
+  const ys=satPoint(tS[st.x][st.p],core[st.x],cv_.den);
+  $("sat").textContent=`農地側の飽和境目（この X・速度）：${ys===null?"到達せず":"Y≥"+ys+"分"}（被覆率95%超）`;
   return {cnt,pf,pi,ns,rn};
 }
 let pend=false;
 function update(){
   const t0=performance.now();
-  st.cls=classify(st.x,st.y,st.z,st.p,st.prio);
+  st.cls=classify(st.x,st.y,st.z,st.p);
   readPal();drawBase();draw();const m=metrics();
   const ms=performance.now()-t0;window.__lastMs=ms;window.__metrics=m;
   $("ms").textContent=`再計算 ${ms.toFixed(1)} ms`;
@@ -410,28 +410,27 @@ $("sx").oninput=e=>set("x",+e.target.value);
 $("sy").oninput=e=>set("y",+e.target.value);
 $("sz").oninput=e=>set("z",+e.target.value);
 document.querySelectorAll(".chips").forEach(c=>c.onclick=e=>{const b=e.target.closest("button");if(!b)return;const s=$(c.dataset.for);s.value=b.dataset.v;s.dispatchEvent(new Event("input"))});
-document.querySelectorAll('input[name=prio]').forEach(r=>r.onchange=e=>{set("prio",e.target.value)});
 ["lyS","lyC","lyI","lyR","lyRail","lyNh"].forEach(id=>$(id).onchange=()=>draw());
 const segP=$("segP");
 META.presets.forEach((p,i)=>{segP.insertAdjacentHTML("beforeend",`<input type="radio" name="sp" id="sp${i}" value="${i}"${i===0?" checked":""}><label for="sp${i}">${p.label}</label>`)});
 segP.onchange=e=>set("p",+e.target.value);
-$("legend").innerHTML=[0,1,2,3,4,5].map(c=>`<span><i class="sw" style="background:var(--c${c})"></i>${NAMES[c]}</span>`).join("")+
+$("legend").innerHTML=[0,1,2,4,5].map(c=>`<span><i class="sw" style="background:var(--c${c})"></i>${NAMES[c]}</span>`).join("")+
  '<span>○ 生存駅</span><span>◯ コア円</span><span>◆ IC</span><span>斜線 撤退地域</span>';
 $("q1").onclick=()=>{$("sx").value=0;$("sx").dispatchEvent(new Event("input"));st.focus=-1;$("sx").scrollIntoView({block:"center",behavior:"smooth"});$("sx").focus({preventScroll:true})};
-$("q2").onclick=()=>{st.focus=-1;$("sy").value=90;$("sz").value=30;st.y=90;st.z=30;syncLabels();update();$("sat").scrollIntoView({block:"center",behavior:"smooth"})};
-$("q3").onclick=()=>{st.focus=3;document.getElementById("pr0").checked=true;st.prio="conflict";update();cv.scrollIntoView({block:"center",behavior:"smooth"})};
+$("q2").onclick=()=>{st.focus=-1;$("sy").value=60;st.y=60;syncLabels();update();$("sat").scrollIntoView({block:"center",behavior:"smooth"})};
+$("q3").onclick=()=>{st.focus=1;$("lyNh").checked=true;update();cv.scrollIntoView({block:"center",behavior:"smooth"})};
 const SW=(h)=>`<svg width="30" height="12" viewBox="0 0 30 12" style="flex:none">${h}</svg>`;
 if(LAYERS){$("legend").insertAdjacentHTML("beforeend",
  `<span>${SW('<line x1="0" y1="6" x2="30" y2="6" stroke="var(--ov)" stroke-width="4.5"/><line x1="0" y1="6" x2="30" y2="6" stroke="var(--card)" stroke-width="1.8" stroke-dasharray="5 5"/>')}新幹線</span>`+
  `<span>${SW('<line x1="0" y1="6" x2="30" y2="6" stroke="var(--ov)" stroke-width="1.8"/><line x1="0" y1="6" x2="30" y2="6" stroke="var(--card)" stroke-width="0.9" stroke-dasharray="3 3"/>')}鉄道</span>`+
  `<span>${SW('<line x1="0" y1="6" x2="30" y2="6" stroke="var(--card)" stroke-width="4.5"/><line x1="0" y1="6" x2="30" y2="6" stroke="var(--lnh)" stroke-width="2"/>')}国道</span>`)}
 else{$("lbRail").style.display=$("lbNh").style.display="none"}
-$("legend").querySelectorAll("span").forEach((s,i)=>{if(i<6){s.style.cursor="pointer";s.title="クリックで強調／解除";s.onclick=()=>{st.focus=st.focus===i?-1:i;update()}}});
+$("legend").querySelectorAll("span").forEach((s,i)=>{if(i<5){const cc=[0,1,2,4,5][i];s.style.cursor="pointer";s.title="クリックで強調／解除";s.onclick=()=>{st.focus=st.focus===cc?-1:cc;update()}}});
 function probe(ev){
   const r=cv.getBoundingClientRect(),mx=ev.clientX-r.left,my=ev.clientY-r.top,s=sc();
   const c=Math.floor((mx-V.tx)/s),row=NR-1-Math.floor((my-V.ty)/s);if(c<0||c>=NC||row<0||row>=NR)return;
   const i=row*NC+c;if(!valid[i]){$("probe").textContent="県外";return}
-  $("probe").textContent=`${NAMES[st.cls[i]]}　駅から ${tS[st.x][st.p][i]}分 ／ ICから ${tI[st.p][i]}分${core[st.x][i]?" ／ コア円内":""}${retreat[st.x][i]?" ／ 撤退地域":""}`;
+  $("probe").textContent=`${NAMES[st.cls[i]]}　国道100m帯 ${nh[i]}%　駅から ${tS[st.x][st.p][i]}分 ／ ICから ${tI[st.p][i]}分${core[st.x][i]?" ／ コア円内":""}${retreat[st.x][i]?" ／ 撤退地域":""}`;
 }
 window.__view=V;
 const ptr=new Map();let pinch=null,moved=0;
@@ -475,7 +474,8 @@ window.ready=(async()=>{
   tI=[];for(let p=0;p<NP;p++)tI.push(take(N));
   core=[];for(let x=0;x<NX;x++)core.push(take(N));
   retreat=[];for(let x=0;x<NX;x++)retreat.push(take(N));
-  window.__data={valid,water,tS,tI,core,retreat,META};
+  nh=take(N);
+  window.__data={valid,water,tS,tI,core,retreat,nh,META};
   syncLabels();update();
 })();
 </script>

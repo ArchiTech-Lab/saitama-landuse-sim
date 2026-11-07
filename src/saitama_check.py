@@ -37,10 +37,10 @@ bad = []
 for x in range(NX):
     for p in range(NP):
         for pr in ("conflict",):
-            fm = [(lambda c: (c == 2) | (c == 1))(sc.classify(F, x, Y, 10, p, pr)) for Y in (15, 30, 45)]
+            fm = [(lambda c: (c == 2) | (c == 1))(sc.classify(F, x, Y, 10, p, pr)) for Y in (5, 10, 15, 20, 30)]
             im = [(lambda c: c == 1)(sc.classify(F, x, 30, Z, p, pr)) for Z in (5, 10, 15)]
-            if not (np.all(fm[0] <= fm[1]) and np.all(fm[1] <= fm[2]) and np.all(im[0] <= im[1]) and np.all(im[1] <= im[2])): bad.append((x, p))
-rec(2, "入れ子 Y15⊂30⊂45, Z5⊂10⊂15", not bad, f"全{NX}X×{NP}速度で検査、違反 {len(bad)}")
+            if not (all(np.all(fm[i] <= fm[i + 1]) for i in range(4)) and np.all(im[0] <= im[1]) and np.all(im[1] <= im[2])): bad.append((x, p))
+rec(2, "入れ子 Y5⊂10⊂15⊂20⊂30, Z5⊂10⊂15", not bad, f"全{NX}X×{NP}速度で検査、違反 {len(bad)}")
 
 # 3 単調性
 inpref = []
@@ -78,7 +78,7 @@ if r.returncode != 0: rec(5, "Python/JS 一致", False, "build失敗 " + r.stder
 else:
     from playwright.sync_api import sync_playwright
     exe = glob.glob("~/.cache/ms-playwright/chromium_headless_shell-*/*/chrome-headless-shell")[0]
-    XS, YS, ZS = (0, 4, 10), (15, 30, 45), (5, 10, 15)
+    XS, YS, ZS = (0, 4, 10), (5, 15, 30), (5, 10, 15)
     ncmp = 0; nbad = 0
     with sync_playwright() as p:
         b = p.chromium.launch(executable_path=exe); pg = b.new_page()

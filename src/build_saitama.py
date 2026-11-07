@@ -205,7 +205,7 @@ li{margin:2px 0}
    <h2>この画面が答える3つの問い</h2>
    <div class="q">
     <button id="q1">1. Xを上げると、居住・農地・工業・緑地の面積比はどう変わるか<br><span class="mut">X を最小にして動かし始める</span></button>
-    <button id="q2">2. どのYで農地側が全域を覆う（区分が意味を失う）か<br><span class="mut">Y=60 にして農地側の飽和境目を表示</span></button>
+    <button id="q2">2. どのYで農地側が全域を覆う（区分が意味を失う）か<br><span class="mut">スライダーで Y=60分まで上げ、農地側の飽和境目を表示</span></button>
     <button id="q3">3. 工業地帯（IC圏×国道100m）はどこに、どれだけあるか<br><span class="mut">工業を強調し、国道を重ねて表示</span></button>
    </div>
   </div>
@@ -216,7 +216,7 @@ li{margin:2px 0}
     <input type="range" id="sx" min="0" max="10" step="1" value="5"><div class="mut" id="xnote"></div></div>
    <div class="ctl"><label class="t" for="sy">Y　農地：駅から車で（分）<output id="oy"></output></label>
     <input type="range" id="sy" min="5" max="60" step="5" value="30">
-    <div class="chips" data-for="sy"><button class="chip" data-v="15">15分</button><button class="chip" data-v="30">30分</button><button class="chip" data-v="45">45分</button></div></div>
+    <div class="chips" data-for="sy"><button class="chip" data-v="5">5分</button><button class="chip" data-v="10">10分</button><button class="chip" data-v="15">15分</button><button class="chip" data-v="20">20分</button><button class="chip" data-v="30">30分</button></div></div>
    <div class="ctl"><label class="t" for="sz">Z　工業：ICから一般道で（分）。国道100m以内のみ<output id="oz"></output></label>
     <input type="range" id="sz" min="1" max="30" step="1" value="10">
     <div class="chips" data-for="sz"><button class="chip" data-v="5">5分</button><button class="chip" data-v="10">10分</button><button class="chip" data-v="15">15分</button></div></div>

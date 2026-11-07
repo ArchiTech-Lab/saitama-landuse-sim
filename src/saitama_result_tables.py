@@ -28,18 +28,17 @@ for bg in (6, 12, 20):
     sp = sf.preset_speeds(sf.PRESETS[0]); sp['none'] = bg; G = sf.graph(cls, sp)
     tS = sf.to_u8(dijkstra(G, directed=True, indices=sf.src_cells(P, sx[a], sy[a]), min_only=True, limit=255.)[cidx])
     tI = sf.to_u8(dijkstra(G, directed=True, indices=icsrc, min_only=True, limit=255.)[cidx])
-    out['bg_speed'][bg] = {'farm_Y': {Y: cov(tS, tI, k, Y, 10)[0] for Y in (15, 30, 45)},
+    out['bg_speed'][bg] = {'farm_Y': {Y: cov(tS, tI, k, Y, 10)[0] for Y in (5, 10, 15, 20, 30)},
                            'ind_Z': {Z: dict(zip(('cells', 'cell_km2', 'real_km2'), ind_area(tI, k, Z)), cov=cov(tS, tI, k, 30, Z)[1]) for Z in (5, 10, 15)}}
 for k in range(11):
     c = sc.classify(F, k, 30, 10, 0)
-    out['by_X'][str(meta['X'][k])] = dict(stations_in=nin[k], farm_Y15=cov(F['tS'][k, 0], F['tI'][0], k, 15, 10)[0],
-        farm_Y30=cov(F['tS'][k, 0], F['tI'][0], k, 30, 10)[0], farm_Y45=cov(F['tS'][k, 0], F['tI'][0], k, 45, 10)[0],
+    out['by_X'][str(meta['X'][k])] = dict(stations_in=nin[k], **{f'farm_Y{Y}': cov(F['tS'][k, 0], F['tI'][0], k, Y, 10)[0] for Y in (5, 10, 15, 20, 30)},
         ind_cov=cov(F['tS'][k, 0], F['tI'][0], k, 30, 10)[1], ind_real_km2=round(sc.ind_real_km2(F, c), 1),
         **{f'km2_{n}': round(float((c == v).sum() * .25), 1) for n, v in (('core', 0), ('industry', 1), ('farm', 2), ('green', 4), ('water', 5))})
 for k in (0, 4, 10):
     for p in range(3):
         out['saturation'][f"{meta['X'][k]}|{meta['presets'][p]['id']}"] = dict(
-            minY=minsat(F['tS'][k, p], k), **{f'cov_Y{Y}': cov(F['tS'][k, p], F['tI'][p], k, Y, 10)[0] for Y in (15, 30, 45)})
+            minY=minsat(F['tS'][k, p], k), **{f'cov_Y{Y}': cov(F['tS'][k, p], F['tI'][p], k, Y, 10)[0] for Y in (5, 10, 15, 20, 30)})
 for p in range(3):
     out['ind_Z'][meta['presets'][p]['id']] = {Z: dict(zip(('cells', 'cell_km2', 'real_km2'), ind_area(F['tI'][p], 4, Z)), cov=cov(F['tS'][4, p], F['tI'][p], 4, 30, Z)[1]) for Z in (5, 10, 15)}
 # 分布（X=40・現実的・Z10）

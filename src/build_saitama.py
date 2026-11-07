@@ -97,7 +97,12 @@ def main():
             sys.exit("data/saitama/meta.json / fields.npz がありません（--dummy で合成確認可）")
         meta, F = load_real()
     check(meta, F)
-    html = TEMPLATE.replace("__META__", json.dumps(meta, ensure_ascii=False).replace("</", "<\\/")).replace("__DATA__", pack(F))
+    layers = None
+    lp = DATA / "layers.json"
+    if lp.exists():
+        layers = json.loads(lp.read_text(encoding="utf-8"))
+        meta["sources"] = list(meta.get("sources", [])) + ["鉄道（地図の重ね表示）＝国土数値情報 N02（鉄道時系列）", "国道（地図の重ね表示）＝OpenStreetMap contributors（ODbL）"]
+    html = TEMPLATE.replace("__LAYERS__", json.dumps(layers, ensure_ascii=False, separators=(",", ":")) if layers else "null").replace("__META__", json.dumps(meta, ensure_ascii=False).replace("</", "<\\/")).replace("__DATA__", pack(F))
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(html, encoding="utf-8")
     print(f"wrote {OUT} ({OUT.stat().st_size/1e6:.2f} MB, dummy={a.dummy})")
@@ -111,11 +116,11 @@ TEMPLATE = r"""<!doctype html>
 <title>埼玉 土地利用シミュレーション</title>
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--ink:#1d2330;--mut:#5b6577;--line:#d9dee7;--acc:#0b5cad;--accsoft:#e3eefa;
---c0:#d55e00;--c1:#0072b2;--c2:#f0e442;--c3:#cc79a7;--c4:#4f7f5d;--c5:#c4cad3;--mapbg:#eef1f5;--ov:#1d2330;--warn:#b42318;--warnbg:#fde8e6}
+--c0:#d55e00;--c1:#0072b2;--c2:#f0e442;--c3:#cc79a7;--c4:#4f7f5d;--c5:#c4cad3;--mapbg:#eef1f5;--ov:#1d2330;--lnh:#5b2a86;--warn:#b42318;--warnbg:#fde8e6}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10141b;--card:#181e28;--ink:#e8ecf3;--mut:#9aa5b8;--line:#2c3544;--acc:#6db1ff;--accsoft:#1c2c42;
---c0:#e8731c;--c1:#3a9bd8;--c2:#e6d93c;--c3:#d98ab6;--c4:#5f9470;--c5:#3a4352;--mapbg:#0b0e13;--ov:#f3f5f9;--warn:#ff8a7d;--warnbg:#3a1a17}}
+--c0:#e8731c;--c1:#3a9bd8;--c2:#e6d93c;--c3:#d98ab6;--c4:#5f9470;--c5:#3a4352;--mapbg:#0b0e13;--ov:#f3f5f9;--lnh:#c3a8ff;--warn:#ff8a7d;--warnbg:#3a1a17}}
 :root[data-theme="dark"]{--bg:#10141b;--card:#181e28;--ink:#e8ecf3;--mut:#9aa5b8;--line:#2c3544;--acc:#6db1ff;--accsoft:#1c2c42;
---c0:#e8731c;--c1:#3a9bd8;--c2:#e6d93c;--c3:#d98ab6;--c4:#5f9470;--c5:#3a4352;--mapbg:#0b0e13;--ov:#f3f5f9;--warn:#ff8a7d;--warnbg:#3a1a17}
+--c0:#e8731c;--c1:#3a9bd8;--c2:#e6d93c;--c3:#d98ab6;--c4:#5f9470;--c5:#3a4352;--mapbg:#0b0e13;--ov:#f3f5f9;--lnh:#c3a8ff;--warn:#ff8a7d;--warnbg:#3a1a17}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;overflow-x:hidden}
 .wrap{max-width:1800px;margin:0 auto;padding:16px}
@@ -184,6 +189,8 @@ li{margin:2px 0}
     <label><input type="checkbox" id="lyC" checked>コア円</label>
     <label><input type="checkbox" id="lyI">IC</label>
     <label><input type="checkbox" id="lyR">撤退地域</label>
+    <label id="lbRail"><input type="checkbox" id="lyRail" checked>鉄道</label>
+    <label id="lbNh"><input type="checkbox" id="lyNh" checked>国道</label>
    </div>
   </div>
   <div class="card" id="qcard">
@@ -235,11 +242,13 @@ li{margin:2px 0}
 <p class="mut" id="built"></p>
 </div>
 <script type="application/json" id="meta">__META__</script>
+<script type="application/json" id="layersdata">__LAYERS__</script>
 <script type="text/plain" id="blob">__DATA__</script>
 <script>
 "use strict";
 const NX=11,NP=3,NAMES=["居住","工業","農地","競合","緑地・森林","区分外"];
 const META=JSON.parse(document.getElementById("meta").textContent);
+const LAYERS=JSON.parse(document.getElementById("layersdata").textContent);
 const G=META.grid,NC=G.ncols,NR=G.nrows,N=NC*NR,CELL=G.cell||500,KM2=CELL*CELL/1e6;
 let valid,water,tS,tI,core,retreat; // tS[x][p] は subarray
 const PRIO={conflict:0,industry:1,farm:2};
@@ -332,6 +341,27 @@ function draw(){
     ctx.globalAlpha=.55;ctx.drawImage(t,0,0,w,h);ctx.globalAlpha=1;
   }
   const ov=css("--ov"),bg=css("--card");
+  if(LAYERS){
+    const path=(pts)=>{ctx.beginPath();for(let j=0;j<pts.length;j++){const [a,b]=px(pts[j][0],pts[j][1]);j?ctx.lineTo(a,b):ctx.moveTo(a,b)}};
+    ctx.lineJoin="round";ctx.lineCap="butt";
+    if($("lyNh").checked){const nc=css("--lnh");
+      for(const l of LAYERS.nh){path(l.pts);ctx.setLineDash([]);ctx.strokeStyle=bg;ctx.lineWidth=4;ctx.stroke();}
+      for(const l of LAYERS.nh){path(l.pts);ctx.strokeStyle=nc;ctx.lineWidth=2;ctx.stroke();}
+    }
+    if($("lyRail").checked){
+      for(const l of LAYERS.rail){ if(l.kind==="shinkansen")continue; path(l.pts);ctx.setLineDash([]);ctx.strokeStyle=ov;ctx.lineWidth=1.8;ctx.stroke();ctx.strokeStyle=bg;ctx.lineWidth=.9;ctx.setLineDash([3,3]);ctx.stroke();}
+      for(const l of LAYERS.rail){ if(l.kind!=="shinkansen")continue; path(l.pts);ctx.setLineDash([]);ctx.strokeStyle=ov;ctx.lineWidth=4.5;ctx.stroke();ctx.strokeStyle=bg;ctx.lineWidth=1.8;ctx.setLineDash([6,6]);ctx.stroke();}
+      ctx.setLineDash([]);
+    }
+    if(V.k>=5){ctx.font="12px system-ui,'Noto Sans JP',sans-serif";ctx.lineWidth=3;ctx.lineJoin="round";
+      const lab=(pts,txt,col)=>{let vis=[];for(const q of pts){const [a,b]=px(q[0],q[1]);if(a>20&&b>20&&a<w-20&&b<h-20)vis.push([a,b])}
+        if(!vis.length)return;const m=vis[vis.length>>1];ctx.strokeStyle=bg;ctx.strokeText(txt,m[0]+6,m[1]-6);ctx.fillStyle=col;ctx.fillText(txt,m[0]+6,m[1]-6)};
+      if($("lyNh").checked){const best={};for(const l of LAYERS.nh){let n=0;for(const q of l.pts){const [a,b]=px(q[0],q[1]);if(a>20&&b>20&&a<w-20&&b<h-20)n++}
+          if(n&&(!best[l.ref]||n>best[l.ref][0]))best[l.ref]=[n,l]}
+        for(const r in best)lab(best[r][1].pts,best[r][1].name,css("--lnh"))}
+      if($("lyRail").checked)for(const l of LAYERS.rail)if(l.kind==="shinkansen")lab(l.pts,l.name,ov);
+    }
+  }
   if($("lyC").checked){
     ctx.lineWidth=1.5;ctx.strokeStyle=ov;
     for(const s of S){ if(!s.alive[X])continue; const [a,b]=px(s.x,s.y),r=Math.max(5,(s.core_m||META.r)/CELL*sc()); ctx.beginPath();ctx.arc(a,b,r,0,6.2832);ctx.stroke(); }
@@ -381,7 +411,7 @@ $("sy").oninput=e=>set("y",+e.target.value);
 $("sz").oninput=e=>set("z",+e.target.value);
 document.querySelectorAll(".chips").forEach(c=>c.onclick=e=>{const b=e.target.closest("button");if(!b)return;const s=$(c.dataset.for);s.value=b.dataset.v;s.dispatchEvent(new Event("input"))});
 document.querySelectorAll('input[name=prio]').forEach(r=>r.onchange=e=>{set("prio",e.target.value)});
-["lyS","lyC","lyI","lyR"].forEach(id=>$(id).onchange=()=>draw());
+["lyS","lyC","lyI","lyR","lyRail","lyNh"].forEach(id=>$(id).onchange=()=>draw());
 const segP=$("segP");
 META.presets.forEach((p,i)=>{segP.insertAdjacentHTML("beforeend",`<input type="radio" name="sp" id="sp${i}" value="${i}"${i===0?" checked":""}><label for="sp${i}">${p.label}</label>`)});
 segP.onchange=e=>set("p",+e.target.value);
@@ -390,7 +420,12 @@ $("legend").innerHTML=[0,1,2,3,4,5].map(c=>`<span><i class="sw" style="backgroun
 $("q1").onclick=()=>{$("sx").value=0;$("sx").dispatchEvent(new Event("input"));st.focus=-1;$("sx").scrollIntoView({block:"center",behavior:"smooth"});$("sx").focus({preventScroll:true})};
 $("q2").onclick=()=>{st.focus=-1;$("sy").value=90;$("sz").value=30;st.y=90;st.z=30;syncLabels();update();$("sat").scrollIntoView({block:"center",behavior:"smooth"})};
 $("q3").onclick=()=>{st.focus=3;document.getElementById("pr0").checked=true;st.prio="conflict";update();cv.scrollIntoView({block:"center",behavior:"smooth"})};
-$("legend").onclick=e=>{};
+const SW=(h)=>`<svg width="30" height="12" viewBox="0 0 30 12" style="flex:none">${h}</svg>`;
+if(LAYERS){$("legend").insertAdjacentHTML("beforeend",
+ `<span>${SW('<line x1="0" y1="6" x2="30" y2="6" stroke="var(--ov)" stroke-width="4.5"/><line x1="0" y1="6" x2="30" y2="6" stroke="var(--card)" stroke-width="1.8" stroke-dasharray="5 5"/>')}新幹線</span>`+
+ `<span>${SW('<line x1="0" y1="6" x2="30" y2="6" stroke="var(--ov)" stroke-width="1.8"/><line x1="0" y1="6" x2="30" y2="6" stroke="var(--card)" stroke-width="0.9" stroke-dasharray="3 3"/>')}鉄道</span>`+
+ `<span>${SW('<line x1="0" y1="6" x2="30" y2="6" stroke="var(--card)" stroke-width="4.5"/><line x1="0" y1="6" x2="30" y2="6" stroke="var(--lnh)" stroke-width="2"/>')}国道</span>`)}
+else{$("lbRail").style.display=$("lbNh").style.display="none"}
 $("legend").querySelectorAll("span").forEach((s,i)=>{if(i<6){s.style.cursor="pointer";s.title="クリックで強調／解除";s.onclick=()=>{st.focus=st.focus===i?-1:i;update()}}});
 function probe(ev){
   const r=cv.getBoundingClientRect(),mx=ev.clientX-r.left,my=ev.clientY-r.top,s=sc();

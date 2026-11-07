@@ -6,5 +6,6 @@ python3 "$H/src/build_saitama_osm.py"
 python3 "$H/src/build_saitama_grid.py"
 python3 "$H/src/saitama_stations.py"
 python3 "$H/src/saitama_fields.py"
+python3 "$H/src/saitama_layers.py"
 python3 "$H/src/build_saitama.py"
 python3 "$H/src/saitama_check.py"   # 5番のJS一致検証にヘッドレスChromium（playwright）が必要

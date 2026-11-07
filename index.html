@@ -34,6 +34,7 @@ input[type=range]{width:100%;margin:6px 0 2px;accent-color:var(--acc)}
 .seg{position:relative}
 .mapbox{position:relative;background:var(--mapbg);border-radius:8px;overflow:hidden;line-height:0;height:70vh;min-height:360px}
 #attr{position:absolute;left:6px;bottom:4px;font-size:11px;background:rgba(255,255,255,.8);color:#222;padding:1px 6px;border-radius:4px}#attr a{color:#222}
+#xinfo{margin-top:6px;font-size:.85rem}#xinfo summary{cursor:pointer;color:var(--acc);font-weight:600}.xd{max-height:230px;overflow:auto;padding-right:4px}.xd p{margin:6px 0}.xt{width:100%;border-collapse:collapse}.xt td,.xt th{padding:2px 4px;text-align:right}
 canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab;user-select:none}
 canvas.drag{cursor:grabbing}
 .zb{position:absolute;top:8px;right:8px;display:flex;flex-direction:column;gap:6px;line-height:1}
@@ -101,7 +102,13 @@ li{margin:2px 0}
  <div>
   <div class="card">
    <div class="ctl"><label class="t" for="sx">X　残す条件（コア円内の人口密度）<output id="ox"></output></label>
-    <input type="range" id="sx" min="0" max="10" step="1" value="5"><div class="mut" id="xnote"></div></div>
+    <input type="range" id="sx" min="0" max="10" step="1" value="5"><div class="mut" id="xnote"></div>
+    <details id="xinfo"><summary>Xとは？</summary>
+     <div class="xd"><p>X＝駅のコア円（半径1,200m）に求める人口密度（人/ha）。駅ごとの勢圏（ボロノイ）の人口を集め、コア円内でX人/haを満たせない駅は撤退（統合）され、生き残った駅にだけ人が住むと仮定する「コンパクトシティ極限」です。</p>
+     <p id="xeff"></p>
+     <p>このページでは「どの駅が残るか」だけを density と共通の計算（アルゴリズムv2）で再現しており、残った駅が農地の起点になります。Xの詳しい意味・本州全体での動き・アルゴリズムは次のリンクで確認できます。</p>
+     <p><a href="https://architech-lab.github.io/honshu-station-density/" target="_blank" rel="noopener noreferrer">honshu-station-density（本州の駅勢圏の収斂・実データ・アルゴリズムv2）</a><br><a href="https://github.com/ArchiTech-Lab/honshu-station-density" target="_blank" rel="noopener noreferrer">リポジトリ（GitHub）</a></p>
+     <table class="xt"><thead><tr><th>段</th><th>X(人/ha)</th><th>県内生存駅</th><th>居住 km²</th></tr></thead><tbody id="xtb"></tbody></table></div></details></div>
    <div class="ctl"><label class="t" for="sy">Y　農地：駅から車で（分）<output id="oy"></output></label>
     <input type="range" id="sy" min="5" max="60" step="5" value="30">
     <div class="chips" data-for="sy"><button class="chip" data-v="5">5分</button><button class="chip" data-v="10">10分</button><button class="chip" data-v="15">15分</button><button class="chip" data-v="20">20分</button><button class="chip" data-v="30">30分</button></div></div>
@@ -416,7 +423,8 @@ $("zrs").onclick=()=>{V.k=1;V.tx=V.ty=0;clampV();viewChanged()};
 new ResizeObserver(()=>{if(st.cls)draw()}).observe(cv);
 matchMedia("(prefers-color-scheme:dark)").addEventListener("change",()=>st.cls&&update());
 function list(id,a){$(id).innerHTML=(a||[]).map(s=>`<li>${String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")}</li>`).join("")}
-list("src",META.sources);list("lim",META.limits);
+list("src",META.sources);
+$("src").insertAdjacentHTML("beforeend",'<li>駅の生存計算（アルゴリズムv2）＝<a href="https://architech-lab.github.io/honshu-station-density/" target="_blank" rel="noopener noreferrer">honshu-station-density</a>（<a href="https://github.com/ArchiTech-Lab/honshu-station-density" target="_blank" rel="noopener noreferrer">GitHub</a>）</li>');list("lim",META.limits);
 $("built").textContent="データ作成日："+(META.built||"-");
 if(META.dummy)$("dummyBanner").style.display="block";
 (function(){
@@ -440,6 +448,17 @@ window.ready=(async()=>{
   retreat=[];for(let x=0;x<NX;x++)retreat.push(take(N));
   nh=take(N);
   window.__data={valid,water,tS,tI,core,retreat,nh,META};
+  (function(){ // Xの説明表：計算結果から生成
+    const rows=[];
+    for(let x=0;x<NX;x++){
+      let ns=0;for(const q of META.stations){ if(!q.alive[x])continue; const c=Math.floor((q.x-G.x0)/CELL),r=Math.floor((q.y-G.y0)/CELL); if(c>=0&&c<NC&&r>=0&&r<NR&&valid[r*NC+c])ns++; }
+      let cn=0;const co=core[x];for(let i=0;i<N;i++)if(co[i]&&valid[i]&&!water[i])cn++;
+      rows.push([x,META.X[x],ns,cn*KM2]);
+    }
+    $("xtb").innerHTML=rows.map(r=>`<tr><td>${r[0]+1}</td><td>${r[1]}</td><td>${r[2]}</td><td>${fmt(r[3])}</td></tr>`).join("");
+    const a=rows[0],b=rows[NX-1];
+    $("xeff").textContent=`Xを上げる → 生き残る駅が減る → 居住面積が縮み、農地・緑地側が広がる。県内の生存駅は X=${a[1]} の${a[2]}駅から X=${b[1]} の${b[2]}駅へ、居住面積は ${fmt(a[3],0)}km² から ${fmt(b[3],0)}km² へ。`;
+  })();
   syncLabels();update();
 })();
 </script>

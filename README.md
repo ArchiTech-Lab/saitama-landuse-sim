@@ -2,6 +2,7 @@
 
 各Xで残った駅勢圏（コンパクトシティ極限モデル）をもとに、駅から車でY分以内を農地、ICから一般道でZ分以内かつ国道沿線100m以内を工業地帯、それ以外を緑地・森林として塗り分け、X・Y・Zを動かして比較する単一HTML。
 
+- 背景地図：国土地理院タイル（トグルでOFFにすれば外部通信なし）
 - デモ：https://architech-lab.github.io/saitama-landuse-sim/
 - 結果と読み方：`docs/saitama_result_20261107.md`
 - 前提モデル：https://github.com/ArchiTech-Lab/honshu-station-density

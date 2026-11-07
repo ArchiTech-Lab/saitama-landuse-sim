@@ -102,6 +102,8 @@ def main():
     if lp.exists():
         layers = json.loads(lp.read_text(encoding="utf-8"))
         meta["sources"] = list(meta.get("sources", [])) + ["鉄道（地図の重ね表示）＝国土数値情報 N02（鉄道時系列）", "国道（地図の重ね表示）＝OpenStreetMap contributors（ODbL）"]
+    meta["sources"] = list(meta.get("sources", [])) + ["地図：国土地理院（淡色地図・シームレス空中写真）"]
+    meta["limits"] = list(meta.get("limits", [])) + ["背景地図の読み込み時のみ国土地理院へ外部通信が発生する（背景地図を「なし」にすると通信ゼロ）"]
     html = TEMPLATE.replace("__LAYERS__", json.dumps(layers, ensure_ascii=False, separators=(",", ":")) if layers else "null").replace("__META__", json.dumps(meta, ensure_ascii=False).replace("</", "<\\/")).replace("__DATA__", pack(F))
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(html, encoding="utf-8")
@@ -143,6 +145,7 @@ input[type=range]{width:100%;margin:6px 0 2px;accent-color:var(--acc)}
 .seg input:focus-visible+label,.chip:focus-visible,input[type=range]:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .seg{position:relative}
 .mapbox{position:relative;background:var(--mapbg);border-radius:8px;overflow:hidden;line-height:0;height:78vh;min-height:460px}
+#attr{position:absolute;left:6px;bottom:4px;font-size:11px;background:rgba(255,255,255,.8);color:#222;padding:1px 6px;border-radius:4px}#attr a{color:#222}
 canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab;user-select:none}
 canvas.drag{cursor:grabbing}
 .zb{position:absolute;top:8px;right:8px;display:flex;flex-direction:column;gap:6px;line-height:1}
@@ -181,7 +184,7 @@ li{margin:2px 0}
   <div class="card mapcard">
    <div class="mapbox" id="stage"><canvas id="map" aria-label="土地区分の地図"></canvas>
     <div class="zb"><button id="zin" aria-label="拡大">+</button><button id="zout" aria-label="縮小">&minus;</button><button id="zrs" aria-label="リセット" style="font-size:13px">1x</button></div>
-    <div id="zlv">ホイール/ピンチで拡大・ドラッグで移動</div></div>
+    <div id="zlv">ホイール/ピンチで拡大・ドラッグで移動</div><div id="attr" style="display:none">地図：<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a></div></div>
    <div id="probe" aria-live="polite">地図をタップ／ホバーでセルの値を表示</div>
    <div class="legend" id="legend"></div>
    <div class="layers" id="layers">
@@ -191,6 +194,11 @@ li{margin:2px 0}
     <label><input type="checkbox" id="lyR">撤退地域</label>
     <label id="lbRail"><input type="checkbox" id="lyRail" checked>鉄道</label>
     <label id="lbNh"><input type="checkbox" id="lyNh" checked>国道</label>
+   </div>
+   <div class="layers" id="bmbox">
+    <span class="t" style="font-weight:600">背景地図</span>
+    <div class="seg" id="segB"><input type="radio" name="bm" id="bm0" value="std" checked><label for="bm0">淡色</label><input type="radio" name="bm" id="bm1" value="photo"><label for="bm1">写真</label><input type="radio" name="bm" id="bm2" value="none"><label for="bm2">なし</label></div>
+    <label>区分の不透明度 <input type="range" id="so" min="0" max="100" step="5" value="60" style="width:120px"><output id="oo">60%</output></label>
    </div>
   </div>
   <div class="card" id="qcard">
@@ -301,12 +309,68 @@ function sizeStage(){
   const nw=cv.clientWidth,nh=hh;
   V.w=nw;V.h=nh;V.s0=Math.min(nw/NC,nh/NR);
 }
+const KMAX=256; // タイルz18(約0.5m/px)相当まで
 function zoomAt(f,mx,my){
-  const k0=V.k,k1=Math.min(16,Math.max(1,k0*f));if(k1===k0)return;
+  const k0=V.k,k1=Math.min(KMAX,Math.max(1,k0*f));if(k1===k0)return;
   const s0=sc();const cx=(mx-V.tx)/s0,cy=(my-V.ty)/s0;
   V.k=k1;const s1=sc();V.tx=mx-cx*s1;V.ty=my-cy*s1;clampV();viewChanged();
 }
 function viewChanged(){$("zlv").textContent=V.k===1?"ホイール/ピンチで拡大・ドラッグで移動":"拡大 "+V.k.toFixed(1)+"倍";draw()}
+
+/* ===== 背景地図（国土地理院タイル）。画面座標は6677のまま。タイルの3隅だけ経緯度→6677（横円筒の等角図法=ガウス・クリューゲル級数）に変換してアフィン描画 ===== */
+const GRS={a:6378137,f:1/298.257222101},L0=139+50/60,PH0=36,K0=0.9999;
+const TMN=GRS.f/(2-GRS.f),TMA=GRS.a/(1+TMN)*(1+TMN*TMN/4+Math.pow(TMN,4)/64);
+const TMAL=[TMN/2-2*TMN*TMN/3+5*Math.pow(TMN,3)/16+41*Math.pow(TMN,4)/180,13*TMN*TMN/48-3*Math.pow(TMN,3)/5+557*Math.pow(TMN,4)/1440,61*Math.pow(TMN,3)/240-103*Math.pow(TMN,4)/140,49561*Math.pow(TMN,4)/161280];
+function tmXi(ph){const d=Math.PI/180,e=2*Math.sqrt(TMN)/(1+TMN),sp=Math.sin(ph*d);
+  const t=Math.sinh(Math.atanh(sp)-e*Math.atanh(e*sp));return Math.atan(t/1)} // Δλ=0
+function lonlat2xy(lon,lat){ // JGD2011 平面直角IX系 (EPSG:6677) の (x東,y北)[m]
+  const d=Math.PI/180,e=2*Math.sqrt(TMN)/(1+TMN),sp=Math.sin(lat*d),dl=(lon-L0)*d;
+  const t=Math.sinh(Math.atanh(sp)-e*Math.atanh(e*sp));
+  const xi1=Math.atan(t/Math.cos(dl)),eta1=Math.atanh(Math.sin(dl)/Math.sqrt(1+t*t));
+  let xi=xi1,eta=eta1;for(let j=1;j<=4;j++){xi+=TMAL[j-1]*Math.sin(2*j*xi1)*Math.cosh(2*j*eta1);eta+=TMAL[j-1]*Math.cos(2*j*xi1)*Math.sinh(2*j*eta1)}
+  const x0=tmXi(PH0);let xi0=x0;for(let j=1;j<=4;j++)xi0+=TMAL[j-1]*Math.sin(2*j*x0);
+  return [K0*TMA*eta,K0*TMA*(xi-xi0)];
+}
+function xy2lonlat(x,y){ // 固定ヤコビアンのニュートン法（県周辺で十分収束）
+  let lon=L0+x/90000,lat=PH0+y/111000;
+  const J=(()=>{const h=1e-3,a=lonlat2xy(lon,lat),b=lonlat2xy(lon+h,lat),c=lonlat2xy(lon,lat+h);
+    const m=[[(b[0]-a[0])/h,(c[0]-a[0])/h],[(b[1]-a[1])/h,(c[1]-a[1])/h]],dt=m[0][0]*m[1][1]-m[0][1]*m[1][0];return [[m[1][1]/dt,-m[0][1]/dt],[-m[1][0]/dt,m[0][0]/dt]]})();
+  for(let i=0;i<6;i++){const q=lonlat2xy(lon,lat),ex=x-q[0],ey=y-q[1];lon+=J[0][0]*ex+J[0][1]*ey;lat+=J[1][0]*ex+J[1][1]*ey}
+  return [lon,lat];
+}
+const tileLon=(tx,z)=>tx/Math.pow(2,z)*360-180;
+const tileLat=(ty,z)=>Math.atan(Math.sinh(Math.PI*(1-2*ty/Math.pow(2,z))))*180/Math.PI;
+const tileOf=(lon,lat,z)=>{const n=Math.pow(2,z),r=lat*Math.PI/180;return [Math.floor((lon+180)/360*n),Math.floor((1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*n)]};
+const TILES=new Map(); let tilePend=false;
+window.__tileReq=[];
+function getTile(kind,z,tx,ty){
+  const key=kind+"/"+z+"/"+tx+"/"+ty;let t=TILES.get(key);
+  if(t)return t.ok?t.img:null;
+  const img=new Image();t={img,ok:false};TILES.set(key,t);
+  if(TILES.size>600){TILES.delete(TILES.keys().next().value)}
+  img.onload=()=>{t.ok=true;if(!tilePend){tilePend=true;requestAnimationFrame(()=>{tilePend=false;draw()})}};
+  img.onerror=()=>{}; // 失敗は黙って無視
+  const url=window.__tileUrl?window.__tileUrl(kind,z,tx,ty):"https://cyberjapandata.gsi.go.jp/xyz/"+(kind==="photo"?"seamlessphoto":"std")+"/"+z+"/"+tx+"/"+ty+(kind==="photo"?".jpg":".png");
+  window.__tileReq.push(url);img.src=url;return null;
+}
+function drawTiles(dpr,w,h){
+  const kind=document.querySelector("input[name=bm]:checked").value;if(kind==="none"||META.dummy)return false;
+  const mpp=CELL/sc();                       // 画面1px当たりの実距離[m]
+  let z=Math.round(Math.log2(126644/mpp));z=Math.max(9,Math.min(18,z));   // 36度付近の赤道周長×cos(lat)/256
+  const inv=(a,b)=>xy2lonlat(G.x0+(a-V.tx)/sc()*CELL,G.y0+(NR-(b-V.ty)/sc())*CELL);
+  const cs=[inv(0,0),inv(w,0),inv(0,h),inv(w,h)];
+  const lo=Math.min(...cs.map(c=>c[0])),hi=Math.max(...cs.map(c=>c[0])),la0=Math.min(...cs.map(c=>c[1])),la1=Math.max(...cs.map(c=>c[1]));
+  const a=tileOf(lo,la1,z),b=tileOf(hi,la0,z);
+  if((b[0]-a[0]+1)*(b[1]-a[1]+1)>150)return true;
+  const P=(lon,lat)=>{const q=lonlat2xy(lon,lat);return px(q[0],q[1])};
+  for(let tx=a[0];tx<=b[0];tx++)for(let ty=a[1];ty<=b[1];ty++){
+    const img=getTile(kind,z,tx,ty);if(!img)continue;
+    const p0=P(tileLon(tx,z),tileLat(ty,z)),p1=P(tileLon(tx+1,z),tileLat(ty,z)),p2=P(tileLon(tx,z),tileLat(ty+1,z));
+    ctx.setTransform(dpr*(p1[0]-p0[0])/256,dpr*(p1[1]-p0[1])/256,dpr*(p2[0]-p0[0])/256,dpr*(p2[1]-p0[1])/256,dpr*p0[0],dpr*p0[1]);
+    ctx.drawImage(img,0,0);
+  }
+  ctx.setTransform(dpr,0,0,dpr,0,0);return true;
+}
 function drawBase(){
   const img=octx.createImageData(NC,NR),d=img.data,cls=st.cls,mb=hex(css("--mapbg")),f=st.focus;
   for(let i=0;i<N;i++){
@@ -327,7 +391,9 @@ function draw(){
   if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr)){cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr)}
   const s=sc();
   ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
-  ctx.imageSmoothingEnabled=false;ctx.drawImage(off,V.tx,V.ty,NC*s,NR*s);
+  ctx.imageSmoothingEnabled=true;ctx.fillStyle=css("--mapbg");ctx.fillRect(0,0,w,h);
+  const bmOn=drawTiles(dpr,w,h);$("attr").style.display=bmOn?"block":"none";
+  ctx.imageSmoothingEnabled=false;ctx.globalAlpha=bmOn?+$("so").value/100:1;ctx.drawImage(off,V.tx,V.ty,NC*s,NR*s);ctx.globalAlpha=1;
   const S=META.stations,X=st.x;
   if($("lyR").checked){
     const rm=rctx.createImageData(NC,NR),rd=rm.data,re=retreat[X];
@@ -411,6 +477,9 @@ $("sy").oninput=e=>set("y",+e.target.value);
 $("sz").oninput=e=>set("z",+e.target.value);
 document.querySelectorAll(".chips").forEach(c=>c.onclick=e=>{const b=e.target.closest("button");if(!b)return;const s=$(c.dataset.for);s.value=b.dataset.v;s.dispatchEvent(new Event("input"))});
 ["lyS","lyC","lyI","lyR","lyRail","lyNh"].forEach(id=>$(id).onchange=()=>draw());
+document.querySelectorAll("input[name=bm]").forEach(r=>r.onchange=()=>draw());
+$("so").oninput=()=>{$("oo").textContent=$("so").value+"%";draw()};
+if(META.dummy)$("bmbox").style.display="none";
 const segP=$("segP");
 META.presets.forEach((p,i)=>{segP.insertAdjacentHTML("beforeend",`<input type="radio" name="sp" id="sp${i}" value="${i}"${i===0?" checked":""}><label for="sp${i}">${p.label}</label>`)});
 segP.onchange=e=>set("p",+e.target.value);
